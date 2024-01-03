@@ -14,3 +14,6 @@
   ├── validation.py: 利用训练好的权重验证/测试数据的COCO指标，并生成record_mAP.txt文件
   └── pascal_voc_classes.json: pascal_voc标签文件
 ```
+
+## 网络结构图
+![Faster R-CNN](fasterRCNN.png)
