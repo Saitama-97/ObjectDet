@@ -13,6 +13,8 @@ from collections import OrderedDict
 import torch
 from torch import nn
 
+from Faster_RCNN.network_files.transform import GeneralizedRCNNTransform
+
 
 class FasterRCNNBase(nn.Module):
     """
@@ -128,3 +130,56 @@ class FasterRCNN(FasterRCNNBase):
             rpn_head = RPNHead(
                 out_channels, rpn_anchor_generator.num_anchors_per_location()[0]
             )
+
+        rpn_pre_nms_top_n = dict(training=rpn_pre_nms_top_n_train, testing=rpn_pre_nms_top_n_test)
+        rpn_post_nms_top_n = dict(training=rpn_post_nms_top_n_train, testing=rpn_post_nms_top_n_test)
+
+        # 定义整个RPN框架
+        rpn = RegionProposalNetwork(
+            rpn_anchor_generator, rpn_head,
+            rpn_fg_iou_thresh, rpn_bg_iou_thresh,
+            rpn_batch_size_per_image, rpn_positive_fraction,
+            rpn_pre_nms_top_n, rpn_post_nms_top_n, rpn_nms_thresh
+        )
+
+        #  Multi-scale RoIAlign pooling
+        if box_roi_pool is None:
+            box_roi_pool = MultiScaleRoIAlign(
+                featmap_names=['0', '1', '2', '3'],  # 在哪些特征层进行roi pooling
+                output_size=[7, 7],
+                sampling_ratio=2)
+
+        # fast RCNN中roi pooling后的展平处理两个全连接层部分
+        if box_head is None:
+            resolution = box_roi_pool.output_size[0]  # 默认等于7
+            representation_size = 1024
+            box_head = TwoMLPHead(
+                out_channels * resolution ** 2,
+                representation_size
+            )
+
+        # 在box_head的输出上预测部分
+        if box_predictor is None:
+            representation_size = 1024
+            box_predictor = FastRCNNPredictor(
+                representation_size,
+                num_classes)
+
+        # 将roi pooling, box_head以及box_predictor结合在一起
+        roi_heads = RoIHeads(
+            # box
+            box_roi_pool, box_head, box_predictor,
+            box_fg_iou_thresh, box_bg_iou_thresh,  # 0.5  0.5
+            box_batch_size_per_image, box_positive_fraction,  # 512  0.25
+            bbox_reg_weights,
+            box_score_thresh, box_nms_thresh, box_detections_per_img)  # 0.05  0.5  100
+
+        if image_mean is None:
+            image_mean = [0.485, 0.456, 0.406]
+        if image_std is None:
+            image_std = [0.229, 0.224, 0.225]
+
+        # 对数据进行标准化，缩放，打包成batch等处理部分
+        transform = GeneralizedRCNNTransform(min_size, max_size, image_mean, image_std)
+
+        super(FasterRCNN, self).__init__(backbone, rpn, roi_heads, transform)
