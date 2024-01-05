@@ -9,9 +9,10 @@
   @Des     : SSD 模型
 """
 import torch
-from torch import nn
+from torch import nn, Tensor
 
 from ResNet50_SSD.src.res50_backbone import resnet50
+from ResNet50_SSD.src.utils import dboxes300_coco
 
 
 class Backbone(nn.Module):
@@ -96,6 +97,9 @@ class SSD300(nn.Module):
         self.loc = nn.ModuleList(location_extractors)
         # 置信度预测器
         self.conf = nn.ModuleList(confidence_extractors)
+
+        default_box = dboxes300_coco()
+        self.compute_loss = Loss(default_box)
 
     def build_additional_features(self, input_size):
         """
@@ -198,3 +202,88 @@ class SSD300(nn.Module):
                 if param.dim() > 1:
                     nn.init.xavier_uniform(param)
         pass
+
+
+class Loss(nn.Module):
+    """
+    损失类
+    """
+
+    def __init__(self, dboxes):
+        super(Loss, self).__init__()
+        # Two factor are from following links
+        # http://jany.st/post/2017-11-05-single-shot-detector-ssd-from-scratch-in-tensorflow.html
+        self.scale_xy = 1.0 / dboxes.scale_xy  # 10
+        self.scale_wh = 1.0 / dboxes.scale_wh  # 5
+
+        self.location_loss = nn.SmoothL1Loss(reduction='none')
+        # [num_anchors, 4] -> [4, num_anchors] -> [1, 4, num_anchors]
+        self.dboxes = nn.Parameter(dboxes(order="xywh").transpose(0, 1).unsqueeze(dim=0),
+                                   requires_grad=False)
+
+        self.confidence_loss = nn.CrossEntropyLoss(reduction='none')
+
+    def _location_vec(self, loc):
+        # type: (Tensor) -> Tensor
+        """
+        Generate Location Vectors
+        计算ground truth相对anchors的回归参数
+        :param loc: anchor匹配到的对应GTBOX Nx4x8732
+        :return:
+        """
+        gxy = self.scale_xy * (loc[:, :2, :] - self.dboxes[:, :2, :]) / self.dboxes[:, 2:, :]  # Nx2x8732
+        gwh = self.scale_wh * (loc[:, 2:, :] / self.dboxes[:, 2:, :]).log()  # Nx2x8732
+        return torch.cat((gxy, gwh), dim=1).contiguous()
+
+    def forward(self, ploc, plabel, gloc, glabel):
+        # type: (Tensor, Tensor, Tensor, Tensor) -> Tensor
+        """
+            ploc, plabel: Nx4x8732, Nxlabel_numx8732
+                predicted location and labels
+
+            gloc, glabel: Nx4x8732, Nx8732
+                ground truth location and labels
+        """
+        # 获取正样本的mask  Tensor: [N, 8732]
+        # 首先知道哪里有gt
+        mask = torch.gt(glabel, 0)  # (gt: >)
+        # mask1 = torch.nonzero(glabel)
+        # 计算一个batch中的每张图片的正样本个数 Tensor: [N]
+        pos_num = mask.sum(dim=1)
+
+        # 计算gt的location回归参数 Tensor: [N, 4, 8732]
+        vec_gd = self._location_vec(gloc)
+
+        # sum on four coordinates, and mask
+        # 计算定位损失(只有正样本)
+        loc_loss = self.location_loss(ploc, vec_gd).sum(dim=1)  # Tensor: [N, 8732]
+        loc_loss = (mask.float() * loc_loss).sum(dim=1)  # Tenosr: [N]
+
+        # hard negative mining Tenosr: [N, 8732]
+        con = self.confidence_loss(plabel, glabel)
+
+        # positive mask never selected
+        # 获取负样本
+        con_neg = con.clone()
+        con_neg[mask] = 0.0
+        # 按照confidence_loss降序排列 con_idx(Tensor: [N, 8732])
+        _, con_idx = con_neg.sort(dim=1, descending=True)
+        _, con_rank = con_idx.sort(dim=1)  # 这个步骤比较巧妙
+
+        # number of negative three times positive
+        # 用于损失计算的负样本数是正样本的3倍（在原论文Hard negative mining部分），
+        # 但不能超过总样本数8732
+        neg_num = torch.clamp(3 * pos_num, max=mask.size(1)).unsqueeze(-1)
+        neg_mask = torch.lt(con_rank, neg_num)  # (lt: <) Tensor [N, 8732]
+
+        # confidence最终loss使用选取的正样本loss+选取的负样本loss
+        con_loss = (con * (mask.float() + neg_mask.float())).sum(dim=1)  # Tensor [N]
+
+        # avoid no object detected
+        # 避免出现图像中没有GTBOX的情况
+        total_loss = loc_loss + con_loss
+        # eg. [15, 3, 5, 0] -> [1.0, 1.0, 1.0, 0.0]
+        num_mask = torch.gt(pos_num, 0).float()  # 统计一个batch中的每张图像中是否存在正样本
+        pos_num = pos_num.float().clamp(min=1e-6)  # 防止出现分母为零的情况
+        ret = (total_loss * num_mask / pos_num).mean(dim=0)  # 只计算存在正样本的图像损失
+        return ret
