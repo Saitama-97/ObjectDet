@@ -8,6 +8,7 @@
   @IDE     : PyCharm
   @Des     : ResNet50 框架
 """
+import torch
 from torch import nn
 
 
@@ -111,12 +112,20 @@ class ResNet(nn.Module):
         self.bn1 = nn.BatchNorm2d(self.in_channel)
         self.relu = nn.ReLU(inplace=True)
 
-        self.mp1 = nn.MaxPool2d(kernel_size=3, stride=2)
+        self.mp1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
-        self.layer1 = self._make_layer(block=Bottleneck, input_channel=64, repeat_times=block_nums[0], stride=1)
-        self.layer2 = self._make_layer(block=Bottleneck, input_channel=128, repeat_times=block_nums[1], stride=2)
-        self.layer3 = self._make_layer(block=Bottleneck, input_channel=256, repeat_times=block_nums[2], stride=2)
-        self.layer4 = self._make_layer(block=Bottleneck, input_channel=512, repeat_times=block_nums[3], stride=2)
+        self.layer1 = self._make_layer(block=Bottleneck, channel=64, repeat_times=block_nums[0], stride=1)
+        self.layer2 = self._make_layer(block=Bottleneck, channel=128, repeat_times=block_nums[1], stride=2)
+        self.layer3 = self._make_layer(block=Bottleneck, channel=256, repeat_times=block_nums[2], stride=2)
+        self.layer4 = self._make_layer(block=Bottleneck, channel=512, repeat_times=block_nums[3], stride=2)
+
+        if self.include_top:
+            self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+            self.fc = nn.Linear(512 * block.expansion, num_classes)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal(m.weight, mode="fan_out")
 
     def _make_layer(self, block, channel, repeat_times, stride):
         """
@@ -143,7 +152,8 @@ class ResNet(nn.Module):
 
         layers.append(block(in_channel=self.in_channel,
                             out_channel=channel,
-                            downsample=downsample))
+                            downsample=downsample,
+                            stride=stride))
 
         self.in_channel = channel * block.expansion
 
@@ -152,3 +162,30 @@ class ResNet(nn.Module):
                                 out_channel=channel))
 
         return nn.Sequential(*layers)
+
+    def forward(self, x):
+        """
+        正向传播
+        @param x:
+        @return:
+        """
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.mp1(x)
+
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        if self.include_top:
+            x = self.avgpool(x)
+            x = torch.flatten(x, 1)
+            x = self.fc(x)
+
+        return x
+
+
+def resnet50(num_classes=1000, include_top=True):
+    return ResNet(block=Bottleneck, block_nums=[3, 4, 6, 3], num_classes=num_classes, include_top=include_top)
