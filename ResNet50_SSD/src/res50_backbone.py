@@ -127,7 +127,7 @@ class ResNet(nn.Module):
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal(m.weight, mode="fan_out")
 
-    def _make_layer(self, block, channel, repeat_times, stride):
+    def _make_layer(self, block, channel, repeat_times, stride=1):
         """
         基于block构建残差结构
         @param block:
