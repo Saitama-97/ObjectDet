@@ -62,23 +62,6 @@
 ### 3.1 将VOC标注数据转为YOLO标注数据(如果你的数据已经是YOLO格式了，可跳过该步骤)
 
 * 使用`trans_voc2yolo.py`脚本进行转换，并在`./data/`文件夹下生成`my_data_label.names`标签文件，
-* 执行脚本前，需要根据自己的路径修改以下参数
-
-```python
-# voc数据集根目录以及版本
-voc_root = "./VOCdevkit"
-voc_version = "VOC2012"
-
-# 转换的训练集以及验证集对应txt文件，对应VOCdevkit/VOC2012/ImageSets/Main文件夹下的txt文件
-train_txt = "train.txt"
-val_txt = "val.txt"
-
-# 转换后的文件保存目录
-save_file_root = "/home/wz/my_project/my_yolo_dataset"
-
-# label标签对应json文件
-label_json_path = './data/pascal_voc_classes.json'
-```
 
 * 生成的`my_data_label.names`标签文件格式如下
 
@@ -96,18 +79,6 @@ bus
 
 * 使用`calculate_dataset.py`脚本生成`my_train_data.txt`文件、`my_val_data.txt`文件以及`my_data.data`
   文件，并生成新的`my_yolov3.cfg`文件
-* 执行脚本前，需要根据自己的路径修改以下参数
-
-```python
-# 训练集的labels目录路径
-train_annotation_dir = "/home/wz/my_project/my_yolo_dataset/train/labels"
-# 验证集的labels目录路径
-val_annotation_dir = "/home/wz/my_project/my_yolo_dataset/val/labels"
-# 上一步生成的my_data_label.names文件路径(如果没有该文件，可以自己手动编辑一个txt文档，然后重命名为.names格式即可)
-classes_label = "./data/my_data_label.names"
-# 原始yolov3-spp.cfg网络结构配置文件
-cfg_path = "./cfg/yolov3-spp.cfg"
-```
 
 ## 4 预训练权重下载地址（下载后放入weights文件夹中）：
 
