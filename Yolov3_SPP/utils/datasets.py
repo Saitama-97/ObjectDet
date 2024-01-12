@@ -194,40 +194,40 @@ class LoadImageAndLabels(Dataset):
                 assert (cxywh_list >= 0).all(), "negative labels: {}".format(file)
                 assert (cxywh_list[:, 1:] <= 1).all(), "out of bounds coordinate labels: {}".format(file)
 
-            if np.unique(cxywh_list, axis=0).shape[0] < cxywh_list.shape[0]:
-                # 检车是否有重复行
-                num_duplicate += 1
+                if np.unique(cxywh_list, axis=0).shape[0] < cxywh_list.shape[0]:
+                    # 检车是否有重复行
+                    num_duplicate += 1
 
-            if single_cls:
-                cxywh_list[:, 0] = 0
+                if single_cls:
+                    cxywh_list[:, 0] = 0
 
-            self.labels[i] = cxywh_list
-            num_found += 1
+                self.labels[i] = cxywh_list
+                num_found += 1
 
-            # Extract object detection boxes for a second stage classifier
-            if extract_bounding_boxes:
-                p = Path(self.img_files[i])
-                img = cv2.imread(str(p))
-                h, w = img.shape[:2]
-                for j, x in enumerate(cxywh_list):
-                    f = "%s%sclassifier%s%g_%g_%s" % (p.parent.parent, os.sep, os.sep, x[0], j, p.name)
-                    if not os.path.exists(Path(f).parent):
-                        os.makedirs(Path(f).parent)  # make new output folder
+                # Extract object detection boxes for a second stage classifier
+                if extract_bounding_boxes:
+                    p = Path(self.img_files[i])
+                    img = cv2.imread(str(p))
+                    h, w = img.shape[:2]
+                    for j, x in enumerate(cxywh_list):
+                        f = "%s%sclassifier%s%g_%g_%s" % (p.parent.parent, os.sep, os.sep, x[0], j, p.name)
+                        if not os.path.exists(Path(f).parent):
+                            os.makedirs(Path(f).parent)  # make new output folder
 
-                    # 将相对坐标转为绝对坐标
-                    # b: x, y, w, h
-                    b = x[1:] * [w, h, w, h]  # box
-                    # 将宽和高设置为宽和高中的最大值
-                    b[2:] = b[2:].max()  # rectangle to square
-                    # 放大裁剪目标的宽高
-                    b[2:] = b[2:] * 1.3 + 30  # pad
-                    # 将坐标格式从 x,y,w,h -> xmin,ymin,xmax,ymax
-                    b = xywh2xyxy(b.reshape(-1, 4)).revel().astype(np.int)
+                        # 将相对坐标转为绝对坐标
+                        # b: x, y, w, h
+                        b = x[1:] * [w, h, w, h]  # box
+                        # 将宽和高设置为宽和高中的最大值
+                        b[2:] = b[2:].max()  # rectangle to square
+                        # 放大裁剪目标的宽高
+                        b[2:] = b[2:] * 1.3 + 30  # pad
+                        # 将坐标格式从 x,y,w,h -> xmin,ymin,xmax,ymax
+                        b = xywh2xyxy(b.reshape(-1, 4)).revel().astype(np.int)
 
-                    # 裁剪bbox坐标到图片内
-                    b[[0, 2]] = np.clip[b[[0, 2]], 0, w]
-                    b[[1, 3]] = np.clip[b[[1, 3]], 0, h]
-                    assert cv2.imwrite(f, img[b[1]:b[3], b[0]:b[2]]), "Failure extracting classifier boxes"
+                        # 裁剪bbox坐标到图片内
+                        b[[0, 2]] = np.clip[b[[0, 2]], 0, w]
+                        b[[1, 3]] = np.clip[b[[1, 3]], 0, h]
+                        assert cv2.imwrite(f, img[b[1]:b[3], b[0]:b[2]]), "Failure extracting classifier boxes"
             else:
                 num_empty += 1
 
@@ -240,4 +240,4 @@ class LoadImageAndLabels(Dataset):
 
 
 if __name__ == '__main__':
-    LoadImageAndLabels(path="../data/my_train_data.txt")
+    LoadImageAndLabels(path="../data/my_val_data.txt")
