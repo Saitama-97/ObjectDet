@@ -145,8 +145,10 @@ class YOLOLayer(nn.Module):
         x = x.view(bs, self.na, self.no, self.ny, self.nx).permute(0, 1, 3, 4, 2).contiguous()
 
         if self.training:
+            # 训练过程，只需要将前面网络的结果进行view和permute处理即可
             return x
         else:
+            # 验证或预测过程，需要将前面网络的结果映射成原图坐标系的结果，然后将映射后的结果以及前面网络的结果返回
             # [batch_size, anchor_num, grid_y, grid_x, output_num]
             # [1, 3, 13, 13, 85]
             # output_num = xywh + obj + classes = 4 + 1 + 80 = 85
@@ -325,4 +327,39 @@ class Darknet(nn.Module):
         return self.forward_once(x, verbose=verbose)
 
     def forward_once(self, x, verbose=False):
-        pass
+        # yolo_out 收集每个Yolo layer层的输出
+        # out 收集每个模块的输出
+        yolo_out, out = [], []
+        if verbose:
+            print("0", x.shape)
+            str = ""
+
+        for i, module in enumerate(self.module_list):
+            name = module.__class__.__name__
+            if name in ["FeatureConcat", "WeightedFeatureFusion"]:
+                # 拼接&融合
+                if verbose:
+                    l = [i - 1] + module.layers
+                    sh = [list(x.shape)] + [list(out[i].shape) for i in module.layers]
+                    str = " >> " + " + ".join(["layers %g %s " % x for x in zip(l, sh)])
+                x = module(x, out)
+            elif name == "YOLOLayer":
+                # Yolo层
+                yolo_out.append(module(x))  # 保存每一个yolo层的输出
+            else:
+                # 卷积层、上采样层、池化层、BN层等
+                x = module(x)
+
+            # 如果该层输出在后续会被使用则记录，否则记空
+            out.append(x if self.routs[i] else [])
+
+        if self.training:
+            # 训练过程，只需要将前面网络的结果进行view和permute处理即可
+            return yolo_out
+        else:
+            # 验证或预测过程，需要将前面网络的结果映射成原图坐标系的结果，然后将映射后的结果以及前面网络的结果返回
+            # inference_out, training_output
+            x, p = zip(*yolo_out)
+            x = torch.cat(x, 1)
+
+            return x, p
